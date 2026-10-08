@@ -1,0 +1,15 @@
+.venv/
+__pycache__/
+*.pyc
+data/
+*.log
+node_modules/
+build/
+dist/
+artifacts/
+/paper.json
+/PROJECT_CONTEXT.md
+.env
+.env.*
+*.key
+*.pem

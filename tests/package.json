@@ -1,0 +1,5 @@
+{
+  "private": true,
+  "scripts": {"reader": "node test_reader_dom.cjs"},
+  "devDependencies": {"jsdom": "26.1.0"}
+}
