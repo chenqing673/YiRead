@@ -91,6 +91,7 @@ python -m venv .venv
 ```powershell
 .venv\Scripts\python.exe tests/test_workflow.py
 .venv\Scripts\python.exe tests/test_pdf_follow.py
+.venv\Scripts\python.exe tests/test_reading_order.py
 node tests/test_frontend.cjs
 npm ci --prefix tests
 node tests/test_reader_dom.cjs
@@ -102,6 +103,7 @@ node tests/test_reader_dom.cjs
 ## 当前边界
 
 - 支持含可提取文字的 PDF；扫描件需先自行 OCR。
+- 提取文字时识别单栏、双栏及多栏，按每栏从上到下、从左到右读取，跨栏标题和图注用于分隔阅读区域。复杂表格或不规则排版仍可能需要人工核对。已有文献保持段落编号与笔记关联；此前已把两栏混在同一段中翻译的内容，需要重新翻译才能纠正译文。
 - 阅读页将原 PDF 渲染为页面图像，保留排版，但不能直接选择其中的文字；需要复制文字或使用 PDF 自身功能时可打开「原始 PDF」。自动跟随以段落为单位，扫描件需 OCR 才能获得文字定位。
 - 任务按文献串行执行，文献内请求并发限 1–2，单次模型请求超时 90 秒；服务重启会将未完成任务标记为暂停，继续时复用已保存的翻译单元。
 - 未配置真实服务密钥时不能验证真实服务的翻译质量与费用。

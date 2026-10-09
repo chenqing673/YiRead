@@ -412,4 +412,18 @@ class Workflow(unittest.TestCase):
         with patch('builtins.open',flaky_open):self.assertEqual(json_io.read_json(path),{'saved':True})
         self.assertEqual(calls,2)
 
+    def test_26_translation_requests_follow_columns_and_keep_block_ids(self):
+        self.configure();translator.save_settings({'concurrency':1,'batch':False,'aligned':False});self.seed('columns')
+        blocks=[{'id':prefix+str(n),'text':prefix+str(n),'rects':[[x,.1+n*.1,x+.3,.125+n*.1]]} for n in range(3) for x,prefix in [(.1,'LEFT'),(.6,'RIGHT')]]
+        write_json_atomic(str(Path(config.get_data_path('library'),'columns','paper.json')),{'pages':[{'page':1,'blocks':blocks}]})
+        requested=[]
+        def translate(text,*args,**kwargs):
+            requested.append(text);return 'translated '+text
+        with patch.object(translation_worker,'translate',translate):
+            job=self.call('/api/translation',{'paper_id':'columns'})[1]['data']
+            self.assertEqual(self.wait_job(job['job_id'])['status'],'completed')
+        expected=[prefix+str(n) for prefix in ['LEFT','RIGHT'] for n in range(3)]
+        self.assertEqual(requested,expected)
+        self.assertEqual([b['id'] for b in get_translation('columns')['blocks']],expected)
+
 if __name__=='__main__':unittest.main(verbosity=2)

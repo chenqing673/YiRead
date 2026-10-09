@@ -9,6 +9,7 @@ from core.config import get_data_path
 from core.alignment import sentence_spans
 from storage.pdf_view import PDF_LOCK, source_path, locate_legacy_blocks
 from utils.json_io import read_json
+from storage.paper_reader import get_paper
 
 
 def numeric_anchors(text):
@@ -36,7 +37,10 @@ def translation_signature(result):
 
 @lru_cache(maxsize=6)
 def _reading_units(pdf_file, pdf_stamp, paper_file, paper_stamp, translation_file, translation_stamp, expected=None):
-    paper, translated = read_json(paper_file), read_json(translation_file)
+    paper_id = os.path.basename(os.path.dirname(paper_file))
+    library_file = os.path.join(get_data_path('library'), paper_id, 'paper.json')
+    paper = get_paper(paper_id) if os.path.normcase(os.path.abspath(paper_file)) == os.path.normcase(os.path.abspath(library_file)) else read_json(paper_file)
+    translated = read_json(translation_file)
     # A worker may replace the translation between the API read and geometry calculation.
     if expected and translation_signature(translated)!=expected:return {}
     outputs = {block['id']:block for block in translated.get('blocks',[])}

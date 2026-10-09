@@ -7,6 +7,7 @@ from storage.jobs import get_job,get_jobs_path
 from storage.translation_store import get_translation,save_translation
 from utils.json_io import read_json,write_json_atomic
 from core.alignment import aligned_sources
+from storage.paper_reader import get_paper
 
 EXECUTOR=ThreadPoolExecutor(max_workers=1)
 JOB_LOCK=threading.RLock()
@@ -40,7 +41,7 @@ def run_translation_job(job_id):
     callbacks={'on_usage':meter,'cancel':cancelled,'on_retry':retry_message}
     job.update(status='running',error=None,failed={},usage={},completed=0,total=0,message='准备翻译');persist()
     try:
-        paper=read_json(os.path.join(get_data_path('library'),pid,'paper.json'))
+        paper=get_paper(pid)
         if not paper:raise ProviderError('文献不存在',fatal=True)
         originals=[(p['page'],b) for p in paper['pages'] for b in p['blocks'] if b.get('text','').strip()]
         selected=[(page,b) for page,b in originals if (not job.get('block_id') or b['id']==job['block_id']) and (not job.get('pages') or page in job['pages']) and (not job.get('retry_blocks') or b['id'] in job['retry_blocks'])]
