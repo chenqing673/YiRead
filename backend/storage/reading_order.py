@@ -10,7 +10,9 @@ def gutter(items):
     height=statistics.median(max(.001,i['box'][3]-i['box'][1]) for i in body)
     best=None
     for a,b in zip(edges,edges[1:]):
-        if b-a<.025:continue
+        # Journal gutters can be only 10–14 pt on a ~600 pt page. A 2.5%
+        # minimum rejected real two-column articles (while wide test gutters passed).
+        if b-a<.008:continue
         x=(a+b)/2
         left=[i for i in body if i['box'][2]<=x]
         right=[i for i in body if i['box'][0]>=x]
@@ -26,7 +28,18 @@ def gutter(items):
 
 def order_items(items,depth=0):
     if not items:return []
-    x=gutter(items) if depth<3 else None
+    # Determine columns separately above/below genuinely full-width material.
+    # The abstract and body on a first page often use different column widths.
+    wide=sorted([i for i in items if i['box'][2]-i['box'][0]>.70],key=lambda i:i['box'][1]) if depth<8 else []
+    if wide:
+        remaining=[i for i in items if i not in wide];result=[]
+        for barrier in wide:
+            center=(barrier['box'][1]+barrier['box'][3])/2
+            before=[i for i in remaining if (i['box'][1]+i['box'][3])/2<center]
+            result.extend(order_items(before,depth+1));result.append(barrier)
+            used={id(i) for i in before};remaining=[i for i in remaining if id(i) not in used]
+        return result+order_items(remaining,depth+1)
+    x=gutter(items) if depth<8 else None
     if x is None:return sorted(items,key=lambda i:(round(i['box'][1],5),i['box'][0]))
     left=[i for i in items if i['box'][2]<=x]
     right=[i for i in items if i['box'][0]>=x]
@@ -37,21 +50,36 @@ def order_items(items,depth=0):
         center=(barrier['box'][1]+barrier['box'][3])/2
         before_left=[i for i in left if (i['box'][1]+i['box'][3])/2<center]
         before_right=[i for i in right if (i['box'][1]+i['box'][3])/2<center]
-        result.extend(order_items(before_left,depth+1));result.extend(order_items(before_right,depth+1));result.append(barrier)
+        result.extend(order_items(before_left+before_right,depth+1));result.append(barrier)
         used={id(i) for i in before_left+before_right}
         left=[i for i in left if id(i) not in used];right=[i for i in right if id(i) not in used]
     result.extend(order_items(left,depth+1));result.extend(order_items(right,depth+1))
     return result
 
 
-def ordered_blocks(blocks):
+def unrotate_rect(rect,rotation):
+    x0,y0,x1,y1=rect
+    if rotation==90:return [y0,1-x1,y1,1-x0]
+    if rotation==180:return [1-x1,1-y1,1-x0,1-y0]
+    if rotation==270:return [1-y1,x0,1-y0,x1]
+    return list(rect)
+
+
+def ordered_blocks(blocks,separators=(),rotation=0):
     """Reorder existing records without changing IDs, text, coordinates or saved files."""
     items=[]
     for block in blocks:
-        box=block.get('reading_bbox')
-        if not box:
-            rects=block.get('rects') or []
-            if not rects:return blocks  # No geometry: do not invent a reading order.
-            box=[min(r[0] for r in rects),min(r[1] for r in rects),max(r[2] for r in rects),max(r[3] for r in rects)]
-        items.append({'box':box,'block':block})
-    return [i['block'] for i in order_items(items)]
+        rects=block.get('rects') or []
+        if rects:
+            # Detect columns from actual lines, not tall paragraph bounding boxes.
+            # Old blocks may also include both page headers or a margin line number.
+            items.extend({'box':unrotate_rect(rect,rotation),'block':block} for rect in rects)
+        elif block.get('reading_bbox'):items.append({'box':block['reading_bbox'],'block':block})
+        else:return blocks  # No geometry: do not invent a reading order.
+    items.extend({'box':box,'separator':True} for box in separators)
+    result=[];seen=set()
+    for item in order_items(items):
+        if item.get('separator'):continue
+        block=item['block']
+        if block['id'] not in seen:seen.add(block['id']);result.append(block)
+    return result

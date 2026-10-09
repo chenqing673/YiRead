@@ -11,6 +11,40 @@ from storage import paper_reader
 def item(name,x,y,w=.30,h=.025):return {'name':name,'box':[x,y,x+w,y+h]}
 
 class ReadingOrder(unittest.TestCase):
+    def test_narrow_journal_gutter_is_not_read_row_by_row(self):
+        items=[item(prefix+str(n),x,.1+n*.04,.435,.01) for n in range(4) for x,prefix in [(.06,'L'),(.515,'R')]]
+        self.assertEqual([i['name'] for i in order_items(items)],[prefix+str(n) for prefix in 'LR' for n in range(4)])
+
+    def test_column_widths_change_below_abstract_separator(self):
+        items=[item(prefix+str(n),x,.2+n*.04,w,.01) for n in range(3) for x,w,prefix in [(.06,.22,'INFO'),(.34,.60,'ABSTRACT')]]
+        items.append(item('rule',0,.5,1,0))
+        items.extend(item(prefix+str(n),x,.6+n*.04,.435,.01) for n in range(3) for x,prefix in [(.06,'L'),(.515,'R')])
+        expected=[prefix+str(n) for prefix in ['INFO','ABSTRACT'] for n in range(3)]+['rule']+[prefix+str(n) for prefix in 'LR' for n in range(3)]
+        self.assertEqual([i['name'] for i in order_items(items)],expected)
+
+    def test_existing_tall_paragraphs_use_line_geometry_including_rotated_pdf(self):
+        blocks=[{'id':prefix,'text':prefix,'rects':[[x,y,x+.435,y+.01] for y in [.1,.2,.3]]} for x,prefix in [(.515,'R'),(.06,'L')]]
+        self.assertEqual([b['id'] for b in ordered_blocks(blocks)],['L','R'])
+        rotated=[{**b,'rects':[[1-r[3],r[0],1-r[1],r[2]] for r in b['rects']]} for b in blocks]
+        self.assertEqual([b['id'] for b in ordered_blocks(rotated,rotation=90)],['L','R'])
+
+    def test_actual_pdf_with_abstract_rules_and_narrow_body_columns(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path=Path(folder)/'journal.pdf'
+            with pymupdf.open() as doc:
+                page=doc.new_page(width=600,height=800)
+                for n,y in enumerate([150,170,190]):
+                    page.insert_text((40,y),'ARTICLE INFO '+str(n),fontsize=9)
+                    page.insert_text((204,y),'ABSTRACT '+str(n)+' '+('chemical conditions '*5),fontsize=9)
+                page.draw_line((40,220),(560,220))
+                for n,y in enumerate([260,330,400]):
+                    for x,prefix in [(40,'LEFT'),(306,'RIGHT')]:
+                        self.assertGreaterEqual(page.insert_textbox(pymupdf.Rect(x,y,x+252,y+60),prefix+str(n)+' '+('synthetic conditions '*5),fontsize=10),0)
+                doc.save(path)
+            text='\n'.join(b['text'] for b in parse_pdf(path)['pages'][0]['blocks'])
+            self.assertLess(text.index('LEFT2'),text.index('RIGHT0'))
+            self.assertLess(text.index('ABSTRACT 2'),text.index('LEFT0'))
+
     def test_two_columns_with_full_width_title_and_middle_caption(self):
         items=[item('title',.1,.02,.8),item('caption',.1,.5,.8)]
         for x,prefix in [(.1,'L'),(.6,'R')]:

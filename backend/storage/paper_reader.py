@@ -24,16 +24,21 @@ paper_id
     if not paper:
         return None
     pages=paper.get('pages',[])
+    pdf_path=os.path.join(get_data_path('library'),paper_id,'source.pdf')
+    regions={}
+    try:
+        from storage.pdf_parser import pdf_reading_regions
+        regions=pdf_reading_regions(pdf_path,os.stat(pdf_path).st_mtime_ns)
+    except (OSError,RuntimeError,ValueError):pass
     # Early versions extracted a whole page into one record. Reconstruct its source
     # text in memory, preserving the record ID and all saved translations/notes.
     legacy=[page for page in pages if len(page.get('blocks',[]))==1 and not page['blocks'][0].get('rects') and len(page['blocks'][0].get('text',''))>1000]
     if legacy:
-        pdf_path=os.path.join(get_data_path('library'),paper_id,'source.pdf')
         try:
             parsed=legacy_page_content(pdf_path,os.stat(pdf_path).st_mtime_ns)
             pages=[{**page,'blocks':[{**page['blocks'][0],'text':'\n\n'.join(b['text'] for b in parsed[page['page']]),'rects':[r for b in parsed[page['page']] for r in b['rects']]}]} if page in legacy and parsed.get(page['page']) else page for page in pages]
         except (OSError,RuntimeError,ValueError):pass
     return {
         "paper_id": paper_id,
-        "pages": [{**page,'blocks':ordered_blocks(page.get('blocks',[]))} for page in pages]
+        "pages": [{**page,'blocks':ordered_blocks(page.get('blocks',[]),**regions.get(page['page'],{}))} for page in pages]
     }
