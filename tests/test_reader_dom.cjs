@@ -17,6 +17,9 @@ w.fetch=async(url,options={})=>{
   else if(url.startsWith('/api/item/'))data={title:'DOM test',file_name:'fixture.pdf'};
   else if(url.startsWith('/api/paper/'))data=paper;
   else if(url.startsWith('/api/pdf-layout/'))data=layout;
+  else if(url.startsWith('/api/translation-layout/')){
+    const page=Number(url.split('/').pop());data={page,width:600,height:800,version:'fixture',background:'/api/translation-background/domtest/'+page+'?v=fixture',blocks:paper.pages[page-1].blocks.map((b,i)=>({id:b.id,placement:!translation.blocks.some(t=>t.id===b.id)?'untranslated':i===1 && page===2?'preserve':'replace',reason:'表格保留原样',box:[i?.52:.06,.2,i?.94:.48,.3],font_size:11,kind:'body'}))};
+  }
   else if(url.startsWith('/api/translation/status/'))data={status:'completed',progress:100};
   else if(url.startsWith('/api/translation/') && options.method!=='POST')data=translation;
   else if(url.startsWith('/api/notes/') && options.method!=='POST')data=notes;
@@ -77,6 +80,48 @@ async function main(){
   console.log('PASS DOM excerpts: exact selected text receives a note and safe highlight');
   d.querySelector('button[data-settings]').click();await settle();dialog=d.querySelector('dialog[open]');assert.equal(dialog.querySelector('[name=aligned]').checked,false);assert.equal(dialog.querySelector('[name=batch]').checked,true);assert.equal(dialog.querySelector('[name=concurrency]').value,'1');
   console.log('PASS DOM settings: sentence mode remains off, batching on, concurrency bounded');
+  dialog.querySelector('.dialog-heading button').click();
+  const beforeLayoutPosts=posts.length;run('activateTranslation(content.querySelector("[data-block=p2_a]"),true)');
+  const layoutChange=run('setReaderLayout("page")');
+  assert.equal(d.getElementById('page-select').disabled,true);
+  assert.equal(d.getElementById('reader-content').inert,true);
+  await layoutChange;
+  assert.equal(d.getElementById('page-select').disabled,false);
+  assert.equal(d.getElementById('reader-content').inert,false);
+  assert.equal(run('content.dataset.layout'),'page');assert.equal(d.querySelectorAll('.layout-paper').length,3);
+  assert.equal(d.querySelectorAll('[data-block]').length,6);assert.equal(d.getElementById('font-plus').disabled,true);
+  assert.equal(d.querySelector('button[data-layout="page"]').getAttribute('aria-pressed'),'true');
+  assert.equal(run('activeTranslation.dataset.block'),'p2_a');
+  d.getElementById('page-select').value='3';d.getElementById('page-select').dispatchEvent(new w.Event('change'));
+  assert.equal(run('activeTranslation.dataset.block'),'p3_a');
+  assert.ok(run('readerNavigationUntil>Date.now()'));
+  run('pdfFollower.page(3)');assert.equal(d.getElementById('pdf-position').textContent,'第 3 页');
+  run('activateTranslation(content.querySelector("[data-block=p2_a]"),true)');
+  assert.equal(d.querySelector('[data-block=p2_b]').closest('details')!==null,true);
+  run('jumpReaderTarget(content.querySelector("[data-block=p2_b]"))');assert.equal(d.querySelector('[data-block=p2_b]').closest('details').open,true);
+  d.getElementById('layout-zoom').value='150';d.getElementById('layout-zoom').dispatchEvent(new w.Event('change'));assert.equal(w.localStorage.getItem('yiread-layout-zoom'),'150');
+  // The fit check must surface overflow instead of silently cropping a long translation.
+  const contents=d.querySelector('[data-block=p2_a] .layout-contents');
+  Object.defineProperty(contents,'clientHeight',{value:20,configurable:true});Object.defineProperty(contents,'scrollHeight',{value:100,configurable:true});
+  run('pageLayout.resize()');assert.ok(d.querySelector('[data-block=p2_a] .layout-full-text'));
+  const layoutText=contents.querySelector('.reading-prose').firstChild;const selectedEnd=d.createRange();selectedEnd.setStart(layoutText,layoutText.textContent.length-2);selectedEnd.setEnd(layoutText,layoutText.textContent.length);w.getSelection().removeAllRanges();w.getSelection().addRange(selectedEnd);d.dispatchEvent(new w.Event('selectionchange'));
+  assert.equal(run('selectedExcerpt.suffix'),'');w.getSelection().removeAllRanges();
+  d.querySelector('[data-block=p2_a] .layout-full-text').click();await settle();
+  assert.equal(run('content.dataset.layout'),'flow');assert.equal(run('activeTranslation.dataset.block'),'p2_a');
+  run('updateReadingPosition()');assert.equal(run('activeTranslation.dataset.block'),'p2_a');
+  assert.equal(d.getElementById('font-plus').disabled,false);assert.equal(posts.length,beforeLayoutPosts);
+  assert.ok(Object.values(notes.notes).find(n=>n.anchor?.quote==='化合物1'));
+  console.log('PASS DOM layout: modes preserve IDs/notes, page graphics/zoom, overflow opens full text, no paid calls');
+  const removed=translation.blocks.pop();await run('setReaderLayout("page")');
+  assert.equal(d.querySelectorAll('[data-block]').length,6);assert.equal(d.querySelector('[data-block=p3_b]').classList.contains('layout-hidden'),true);
+  translation.blocks.push(removed);await run('refreshTranslations()');
+  assert.equal(d.querySelector('[data-block=p3_b]').classList.contains('layout-textbox'),true);
+  assert.match(d.querySelector('[data-block=p3_b]').textContent,/反应搅拌/);
+  await run('setReaderLayout("flow")');const originalFetch=w.fetch;
+  w.fetch=async(url,options)=>url.startsWith('/api/translation-layout/')?{ok:false,status:422,json:async()=>({status:'error',message:'fixture layout failure'})}:originalFetch(url,options);
+  await run('setReaderLayout("page")');assert.equal(d.querySelectorAll('[data-block]').length,6);assert.match(d.querySelector('.layout-note').textContent,/完整译文/);
+  assert.equal(d.querySelectorAll('.layout-paper').length,0);assert.equal(posts.length,beforeLayoutPosts);
+  console.log('PASS DOM layout recovery: new translations appear without losing hidden IDs; API failure retains full text');
 }
 main().then(()=>dom.window.close()).catch(error=>{console.error(error);dom.window.close();process.exitCode=1;});
 

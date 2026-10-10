@@ -83,5 +83,13 @@ class PdfFollower {
     const left=this.scroll.scrollLeft+box.left-pane.left-(this.scroll.clientLeft||0)+x*box.width-this.scroll.clientWidth*.1;
     this.scroll.scrollTo({top:Math.max(0,top),left:Math.max(0,left),behavior:'auto'});
   }
-  page(number) {const view=this.pages.get(Number(number));if(view)this.scrollTo(view,0);}
+  page(number) {
+    number=Number(number);const view=this.pages.get(number);if(!view)return;
+    document.getElementById('pdf-position').textContent='第 '+number+' 页';
+    if(this.blocks.get(this.active)?.page!==number){
+      this.active=null;for(const page of this.pages.values())page.overlay.replaceChildren();
+      this.message.textContent='已定位到第 '+number+' 页；点击译文段落可显示对应色块。';
+    }
+    this.scrollTo(view,0);
+  }
 }

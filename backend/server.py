@@ -19,6 +19,7 @@ from api.translation_result import handle_translation_result
 from api.translation_status import handle_translation_status
 from api.paper import handle_paper
 from api.pdf_view import handle_pdf_layout, handle_pdf_page
+from api.translation_layout import handle_translation_layout, handle_translation_background
 from api.item import handle_item
 from api.delete import handle_delete
 from api.settings import handle_settings, handle_test
@@ -78,6 +79,11 @@ class YiReadHandler(SimpleHTTPRequestHandler):
         if not self.allowed_request():
             return
         route = unquote(urlparse(self.path).path)
+        for prefix, handle in (('/api/translation-layout/', handle_translation_layout), ('/api/translation-background/', handle_translation_background)):
+            if route.startswith(prefix):
+                match = re.fullmatch(re.escape(prefix)+r'([A-Za-z0-9_-]+)/([1-9][0-9]{0,5})', route)
+                if not match:return error(self, 'invalid page', 400)
+                return handle(self, match[1], int(match[2]))
         if route.startswith("/api/pdf-page/"):
             match = re.fullmatch(r"/api/pdf-page/([A-Za-z0-9_-]+)/([1-9][0-9]{0,5})", route)
             if not match:

@@ -8,6 +8,7 @@ function rememberReaderPosition(){
 }
 function jumpReaderTarget(target,sentence,preserveMode=false){
   if(!target)return;
+  target.closest('details')?.setAttribute('open','');
   rememberReaderPosition();if(!preserveMode)setMode('bilingual');readerNavigationUntil=Date.now()+650;
   target.scrollIntoView({block:'start',behavior:'auto'});activateTranslation(target,true,sentence);
 }
@@ -15,6 +16,7 @@ function returnReaderPosition(){
   const saved=readerJumps.pop();if(!saved)return;
   readerNavigationUntil=Date.now()+650;setMode(saved.mode || 'bilingual');translationScroll.scrollTo({top:saved.top,behavior:'auto'});
   const node=Array.from(content.querySelectorAll('[data-block]')).find(n=>n.dataset.block===saved.block);activateTranslation(node,true);
+  node?.closest('details')?.setAttribute('open','');
   document.getElementById('return-reading-btn').hidden=!readerJumps.length;
 }
 function showTranslationProgress(ts){
@@ -69,10 +71,7 @@ const returnButton=el('button','quiet','返回刚才的位置');returnButton.id=
 document.querySelector('.reader-toolbar').append(returnButton);
 const task=el('div','translation-task');task.id='translation-task';task.hidden=true;task.setAttribute('aria-live','polite');document.querySelector('.reading-main').prepend(task);
 readerReady.then(()=>{
-  const select=document.getElementById('page-select');select.onchange=()=>{
-    const target=document.getElementById('page-'+select.value)?.querySelector('[data-block]');
-    if(target){jumpReaderTarget(target,undefined,true);pdfFollower.page(select.value);}else{rememberReaderPosition();document.getElementById('page-'+select.value)?.scrollIntoView({block:'start'});pdfFollower.page(select.value);}
-  };
+  const select=document.getElementById('page-select');select.onchange=()=>navigateReaderPage(select.value);
   pdfFollower.onPick=id=>{
     const sentence=Array.from(content.querySelectorAll('[data-follow]')).find(n=>n.dataset.follow===id);
     const target=sentence?.closest('[data-block]') || Array.from(content.querySelectorAll('[data-block]')).find(n=>n.dataset.block===id);
@@ -83,8 +82,8 @@ readerReady.then(()=>{
 document.addEventListener('keydown',event=>{
   if(event.ctrlKey||event.metaKey||event.altKey||event.target.closest('input,textarea,select,[contenteditable="true"]')||document.querySelector('dialog[open]'))return;
   if(event.key==='j'||event.key==='k'){
-    const nodes=Array.from(content.querySelectorAll('[data-block]'));const i=nodes.indexOf(activeTranslation);const next=nodes[i+(event.key==='j'?1:-1)];
-    if(next){event.preventDefault();readerNavigationUntil=Date.now()+650;next.scrollIntoView({block:'start'});activateTranslation(next,true);}
+    const nodes=Array.from(content.querySelectorAll('[data-block]')).filter(n=>!n.classList.contains('layout-hidden'));const i=nodes.indexOf(activeTranslation);const next=nodes[i+(event.key==='j'?1:-1)];
+    if(next){event.preventDefault();readerNavigationUntil=Date.now()+650;next.closest('details')?.setAttribute('open','');next.scrollIntoView({block:'start'});activateTranslation(next,true);}
   }else if(event.key==='n'){event.preventDefault();document.getElementById('annotation-btn').click();}
   else if(event.key==='Escape'&&readerJumps.length)returnReaderPosition();
 });

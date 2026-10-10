@@ -92,6 +92,7 @@ python -m venv .venv
 .venv\Scripts\python.exe tests/test_workflow.py
 .venv\Scripts\python.exe tests/test_pdf_follow.py
 .venv\Scripts\python.exe tests/test_reading_order.py
+.venv\Scripts\python.exe tests/test_translation_layout.py
 node tests/test_frontend.cjs
 npm ci --prefix tests
 node tests/test_reader_dom.cjs
@@ -110,5 +111,7 @@ node tests/test_reader_dom.cjs
 - 已通过浏览器检查文献库、双语阅读与深浅主题；当前界面采用中性底色、低饱和蓝色和简洁的学术排版。
 
 更多操作说明见 `docs/deployment.md`，本次修改见 `docs/changelog.md`。
+
+阅读页新增「连续阅读 / 原版排版」。连续阅读支持自由调字号；原版排版复用已有译文，保持 PDF 页码、栏位和图形背景，支持独立版式缩放。公式、复杂表格、参考文献和不确定区域保留原文，对应译文在页下展开查看。文字放不下时提供滚动和「查看完整译文」入口。切换不调用翻译服务、不改写原文件；当前导出仍为文字译文。
 
 文献库、阅读页与详情页均提供「? 帮助」，点击可按主题查看详细功能、操作步骤、快捷键、费用说明与常见问题。

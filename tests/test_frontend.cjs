@@ -3,13 +3,14 @@ const fs = require('node:fs');
 const vm = require('node:vm');
 const assert = require('node:assert/strict');
 class Element {
-  constructor(tag='div') { this.tagName=tag.toUpperCase();this.children=[];this.dataset={};this.attributes={};this.style={setProperty(k,v){this[k]=v;}};this.value='';this._text='';this.events={};this.scrollTop=0;this.scrollLeft=0;this.clientHeight=600;this.clientWidth=600;this.scrollHeight=1200;this.className='';this.classList={toggle:(name,on)=>{const list=new Set(this.className.split(' ').filter(Boolean));if(on)list.add(name);else list.delete(name);this.className=[...list].join(' ');},add:(name)=>this.classList.toggle(name,true),remove:(...names)=>names.forEach(name=>this.classList.toggle(name,false))}; }
+  constructor(tag='div') { this.tagName=tag.toUpperCase();this.children=[];this.dataset={};this.attributes={};this.style={setProperty(k,v){this[k]=v;}};this.value='';this._text='';this.events={};this.scrollTop=0;this.scrollLeft=0;this.clientHeight=600;this.clientWidth=600;this.scrollHeight=1200;this.className='';this.classList={contains:name=>this.className.split(' ').includes(name),toggle:(name,on)=>{const list=new Set(this.className.split(' ').filter(Boolean));if(on)list.add(name);else list.delete(name);this.className=[...list].join(' ');},add:(name)=>this.classList.toggle(name,true),remove:(...names)=>names.forEach(name=>this.classList.toggle(name,false))}; }
   set textContent(value){this._text=String(value);this.children=[];}
   get textContent(){return this._text+this.children.map(node=>typeof node==='string'?node:node.textContent).join('');}
   set innerHTML(value){throw new Error('Dynamic HTML must not be used to render document content');}
   append(...nodes){this.children.push(...nodes);}
   replaceChildren(...nodes){this._text='';this.children=nodes;}
   setAttribute(name,value){this.attributes[name]=value;}
+  closest(){return null;}
   querySelectorAll(selector){const output=[];const visit=node=>{for(const child of node.children){if(typeof child==='string')continue;if(selector==='[data-block]'&&child.dataset.block)output.push(child);if(selector==='[data-follow]'&&child.dataset.follow)output.push(child);if(selector==='[data-page]'&&child.dataset.page)output.push(child);visit(child);}};visit(this);return output;}
   addEventListener(name,fn){this.events[name]=fn;}
   showModal(){this.open=true;}
@@ -31,6 +32,7 @@ function context(api, reader=false){
   vm.runInContext(fs.readFileSync('frontend/js/ui.js','utf8'),ctx);
   vm.runInContext(fs.readFileSync('frontend/js/pdf-follow.js','utf8'),ctx);
   vm.runInContext(fs.readFileSync('frontend/js/reading-format.js','utf8'),ctx);
+  vm.runInContext(fs.readFileSync('frontend/js/reader-layout.js','utf8'),ctx);
   ctx.sessionStorage={getItem:key=>session.get(key)||null,setItem:(key,value)=>session.set(key,String(value))};
   ctx.apiAuthedGet=api;
   return {ctx,get,document,storage,listeners,session};

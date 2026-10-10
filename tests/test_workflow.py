@@ -426,4 +426,23 @@ class Workflow(unittest.TestCase):
         self.assertEqual(requested,expected)
         self.assertEqual([b['id'] for b in get_translation('columns')['blocks']],expected)
 
+    def test_27_layout_api_serves_versioned_background_without_model_request(self):
+        import pymupdf
+        from storage.pdf_parser import parse_pdf
+        self.seed('page-layout');folder=Path(config.get_data_path('library'),'page-layout')
+        with pymupdf.open() as doc:
+            page=doc.new_page(width=600,height=800)
+            page.insert_textbox(pymupdf.Rect(40,120,280,260),'Scientists investigated the chemical conditions and reported the synthetic yields. The reaction was stirred for three hours in a suitable solvent.',fontsize=11)
+            doc.save(folder/'source.pdf')
+        parsed=parse_pdf(folder/'source.pdf');write_json_atomic(str(folder/'paper.json'),parsed)
+        block=parsed['pages'][0]['blocks'][0]
+        write_json_atomic(str(Path(config.get_data_path('translation'),'page-layout.json')),{'engine':'openai-compatible','blocks':[{'id':block['id'],'translation':'研究人员考察反应条件并报告收率。'}]})
+        count=len(Provider.calls)
+        status,result=self.call('/api/translation-layout/page-layout/1');self.assertEqual(status,200)
+        self.assertEqual(result['data']['blocks'][0]['placement'],'replace')
+        with self.opener.open(self.base+result['data']['background']) as response:self.assertTrue(response.read().startswith(b'\x89PNG'))
+        self.assertEqual(self.call('/api/translation-background/page-layout/1?v=old')[0],409)
+        self.assertEqual(self.call('/api/translation-layout/page-layout/0')[0],400)
+        self.assertEqual(len(Provider.calls),count)
+
 if __name__=='__main__':unittest.main(verbosity=2)
