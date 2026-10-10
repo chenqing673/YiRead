@@ -8,6 +8,7 @@ from storage.translation_store import get_translation,save_translation
 from utils.json_io import read_json,write_json_atomic
 from core.alignment import aligned_sources
 from storage.paper_reader import get_paper
+from storage.diagram_labels import translatable
 
 EXECUTOR=ThreadPoolExecutor(max_workers=1)
 JOB_LOCK=threading.RLock()
@@ -43,9 +44,9 @@ def run_translation_job(job_id):
     try:
         paper=get_paper(pid)
         if not paper:raise ProviderError('文献不存在',fatal=True)
-        originals=[(p['page'],b) for p in paper['pages'] for b in p['blocks'] if b.get('text','').strip()]
+        originals=[(p['page'],b) for p in paper['pages'] for b in p['blocks'] if translatable(b)]
         selected=[(page,b) for page,b in originals if (not job.get('block_id') or b['id']==job['block_id']) and (not job.get('pages') or page in job['pages']) and (not job.get('retry_blocks') or b['id'] in job['retry_blocks'])]
-        if not selected:raise ProviderError('所选范围没有可提取的文字，扫描件需先进行 OCR',fatal=True)
+        if not selected:raise ProviderError('所选范围没有可翻译的正文。结构式标签保留在原图；扫描件需先进行 OCR。',fatal=True)
         existing=get_translation(pid) or {};same_language=existing.get('target_lang')==job['target_lang']
         translated=copy.deepcopy(existing.get('blocks',[])) if same_language else []
         cached={b['id']:b for b in translated} if not job.get('force') and existing.get('engine')=='openai-compatible' else {}
@@ -56,9 +57,11 @@ def run_translation_job(job_id):
             if value and value.get('translation') and (not aligned or value.get('segments')) and not job.get('block_id') and not job.get('retry_blocks'):continue
             if job.get('segment_id'):
                 segment=next(s for s in prior['segments'] if s['id']==job['segment_id']);units=[{'id':segment['id'],'text':segment['text']}]
+            elif block.get('layout_sources'):
+                units=[u for part in block['layout_sources'] for u in (aligned_sources(pid,page,part) if aligned else [part])]
             elif aligned:units=aligned_sources(pid,page,block)
             else:units=[{'id':block['id']+'_part'+str(i//5000+1),'text':block['text'][i:i+5000]} for i in range(0,len(block['text']),5000)]
-            plans[block['id']]={'page':page,'units':units,'prior':prior};pending.extend(units)
+            plans[block['id']]={'page':page,'units':units,'prior':prior,'layout':bool(block.get('layout_sources'))};pending.extend(units)
         signature=hashlib.sha256(json.dumps({'source':originals,'aligned':aligned,'language':job['target_lang'],'model':config.get('model'),'endpoint':config.get('base_url'),'glossary':config.get('glossary')},sort_keys=True).encode()).hexdigest()
         results=job.get('unit_results',{}) if not job.get('force') and signature==job.get('plan_signature') else {}
         allowed={u['id'] for u in pending};results={k:v for k,v in results.items() if k in allowed and isinstance(v,str) and v.strip()}
@@ -73,9 +76,10 @@ def run_translation_job(job_id):
                         output=copy.deepcopy(prior);segment=next(s for s in output['segments'] if s['id']==job['segment_id'])
                         segment['history']=(segment.get('history',[])+[segment['translation']])[-20:];segment.update(translation=results[segment['id']],edited=False)
                         output['translation']='\n\n'.join(s['translation'] for s in output['segments'])
-                    elif aligned:
+                    elif aligned or plan['layout']:
                         segments=[dict(u,translation=results[u['id']]) for u in plan['units']]
-                        output={'id':bid,'segments':segments,'translation':'\n\n'.join(s['translation'] for s in segments),'alignment_version':2}
+                        output={'id':bid,'segments':segments,'translation':'\n\n'.join(s['translation'] for s in segments),'alignment_version':2 if aligned else 0}
+                        if plan['layout']:output['layout_version']=1
                     else:output={'id':bid,'translation':'\n\n'.join(results[u['id']] for u in plan['units'])}
                     if not job.get('segment_id') and prior.get('translation'):output['history']=(prior.get('history',[])+[prior['translation']])[-20:]
                     translated=[b for b in translated if b['id']!=bid]+[output];order={b['id']:i for i,(_,b) in enumerate(originals)}

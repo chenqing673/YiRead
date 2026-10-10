@@ -45,14 +45,18 @@ class ReaderPageLayout {
     this.states.delete(Number(section.dataset.page));
   }
   apply(section,plan,signature){
+    if(plan.fallback){this.fallback(section,plan.fallback);return;}
     const nodes=Array.from(section.querySelectorAll('[data-block]'));const heading=section.querySelector('.page-title');
+    if(!plan.blocks.some(b=>b.placement==='replace') && nodes.some(n=>!n.classList.contains('placeholder'))){
+      this.fallback(section,'本页特殊区域无法可靠覆排，已显示完整译文。图表和结构式可在原始 PDF 中查看。');return;
+    }
     section.replaceChildren(heading);section.classList.add('layout-ready');
     const canvas=el('div','layout-canvas');const sheet=el('div','layout-paper');
     sheet.style.width=plan.width+'px';sheet.style.height=plan.height+'px';
     const background=el('img','layout-background');background.alt='第 '+plan.page+' 页，保留图表的原版排版背景';background.loading='lazy';background.decoding='async';background.src=plan.background;
     background.onerror=()=>{if(section.contains(background))this.fallback(section,'页面背景未载入，已展示完整译文。可切回连续阅读后重试。');};
     sheet.append(background);canvas.append(sheet);section.append(canvas);
-    const preserved=el('details','layout-preserved-list');const summary=el('summary');preserved.append(summary);let count=0;
+    const preserved=el('details','layout-preserved-list');preserved.open=true;const summary=el('summary');preserved.append(summary);let count=0;
     const state={plan,signature,section,canvas,sheet,positioned:[]};
     for(const node of nodes){
       const entry=plan.blocks.find(b=>b.id===node.dataset.block);
@@ -76,7 +80,7 @@ class ReaderPageLayout {
         node.classList.add('layout-preserved');node.dataset.layoutReason=entry?.reason || '没有可靠位置';preserved.append(node);count++;
       }
     }
-    summary.textContent=count+' 个区域保留原文 · 展开查看完整译文';
+    summary.textContent=count+' 个区域的完整译文 · 图表和符号保留原样';
     preserved.hidden=!count;section.append(preserved);
     if(!count && !state.positioned.length)section.append(el('p','layout-note','本页保留原文，暂无可排入的译文。'));
     this.states.set(plan.page,state);this.resize();

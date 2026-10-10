@@ -49,28 +49,28 @@ def ruled_table_regions(page):
 
 def region_kind(block, box, tables, images, font_size=10, bold=False):
     text = block.get('text', '').strip()
+    if block.get('role') == 'diagram-label':
+        return 'preserve', '结构式标签保留在原图中'
     if box[1] < .065 or box[3] > .94:
         return 'preserve', '页眉、页脚或页边文字'
     if any(overlap(box, area) > .15 for area in tables):
         return 'preserve', '表格保留原样'
     if any(overlap(box, area) > .25 for area in images):
         return 'preserve', '图内文字保留原样'
-    if box[2]-box[0] > .70 and box[3]-box[1] > .50:
-        return 'preserve', '旧记录跨越多个栏位，请在连续阅读中查看'
     if re.match(r'^\[\d+\]', text) or re.search(r'https?://|@|\bdoi\b', text, re.I):
         return 'preserve', '参考文献或联系方式保留原样'
-    if len(re.findall(r'[=∑∫√±→⇌δαβγΔλ]', text)) >= 3:
+    words=len(re.findall(r'[A-Za-z]{2,}', text))
+    if words < 10 and len(re.findall(r'[=∑∫√±→⇌δαβγΔλ]', text)) >= 3:
         return 'preserve', '公式或实验符号密集区域保留原样'
     if re.match(r'^(?:Fig(?:ure)?\.?|Scheme|Table)\s*\d+', text, re.I):
         return 'caption', ''
     if font_size >= 12 and box[1] < .30 and len(text) > 16 and len(re.findall(r'[A-Za-z]{2,}', text)) >= 2:
         return 'heading', ''
-    if bold and .40 < box[1] < .90 and text.isupper() and len(text) > 6 and re.search(r'[A-Za-z]{6}', text):
+    if text.isupper() and 6 <= len(text) <= 100 and re.search(r'[A-Za-z]{6}',text):
         return 'heading', ''
     if re.match(r'^\d+(?:\.\d+)*\.?\s+[A-Za-z]', text) and len(text) < 140:
         return 'heading', ''
-    words=len(re.findall(r'[A-Za-z]{2,}', text))
-    if (len(text) >= 80 and words >= 10) or (len(text) >= 25 and words >= 4 and box[1] > .40 and box[2]-box[0] >= .18):
+    if (len(text) >= 80 and words >= 10) or (len(text) >= 25 and words >= 3 and box[2]-box[0] >= .10):
         # Comma-separated author names/affiliations should not be laid out as prose.
         if box[1] < .4 and (re.search(r'\b(?:Department|University|College|Institute)\b', text) or text.count(',') >= 5):
             return 'preserve', '作者和单位保留原样'
@@ -98,12 +98,22 @@ def _layout(paper_id, page_number, source_stamp, paper_stamp, translation_stamp)
         raise ValueError('page not found')
     translated = get_translation(paper_id) or {}
     outputs = {b['id']: b for b in translated.get('blocks', [])}
+    # Re-translated legacy pages retain their parent ID but save positioned parts.
+    source_blocks=[]
+    for block in original.get('blocks', []):
+        output=outputs.get(block['id'], {})
+        if output.get('layout_version') == 1 and output.get('segments'):
+            for segment in output['segments']:
+                source_blocks.append(segment)
+                outputs[segment['id']]=segment
+        else:
+            source_blocks.append(block)
     entries = []
     with PDF_LOCK, pymupdf.open(source_path(paper_id)) as document:
         if not 1 <= page_number <= len(document):
             raise ValueError('page not found')
         page = document[page_number-1]
-        geometry = locate_legacy_blocks(page, original.get('blocks', []))
+        geometry = locate_legacy_blocks(page, source_blocks)
         tables = []
         try:
             tables = [normalized_rect(table.bbox, page) for table in page.find_tables(strategy='lines_strict').tables]
@@ -113,7 +123,7 @@ def _layout(paper_id, page_number, source_stamp, paper_stamp, translation_stamp)
         images = [normalized_rect(image['bbox'], page) for image in page.get_image_info()]
         spans = [(span,normalized_rect(span['bbox'],page)) for b in page.get_text('dict')['blocks'] if b.get('type') == 0
                  for line in b['lines'] for span in line['spans']]
-        for block, position in zip(original.get('blocks', []), geometry):
+        for block, position in zip(source_blocks, geometry):
             rects = position.get('rects', [])
             value = outputs.get(block['id'], {}).get('translation', '')
             if not translated.get('engine') and value.startswith('[译文]'):
@@ -142,9 +152,12 @@ def _layout(paper_id, page_number, source_stamp, paper_stamp, translation_stamp)
         for entry in candidates:
             if any(other is not entry and (overlap(entry['box'], other['box']) > .08 or overlap(other['box'], entry['box']) > .08) for other in candidates):
                 entry.update(placement='preserve', reason='文字区域重叠，保留原文')
-        version = hashlib.sha256(repr((paper_id, page_number, source_stamp, paper_stamp, translation_stamp, 'layout-v2')).encode()).hexdigest()[:24]
+        fallback = None
+        if not any(e['placement']=='replace' for e in entries) and any(e['placement']=='preserve' and e.get('reason') in ('文字跨越多个栏位','没有可靠位置','文字区域重叠，保留原文') for e in entries):
+            fallback = '此页旧译文缺少段落位置，已显示完整译文；重译本页后可按原栏位排版。'
+        version = hashlib.sha256(repr((paper_id, page_number, source_stamp, paper_stamp, translation_stamp, 'layout-v4')).encode()).hexdigest()[:24]
         return {'page': page_number, 'width': page.rect.width, 'height': page.rect.height,
-                'version': version, 'blocks': entries,
+                'version': version, 'blocks': entries, 'fallback': fallback,
                 'background': f'/api/translation-background/{paper_id}/{page_number}?v={version}'}
 
 

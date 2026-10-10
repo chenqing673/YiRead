@@ -2,6 +2,7 @@ import pymupdf
 from functools import lru_cache
 from storage.pdf_view import PDF_LOCK, normalized_rect
 from storage.reading_order import order_items
+from storage.diagram_labels import page_labels, annotate_blocks
 
 
 def page_separators(page):
@@ -55,5 +56,5 @@ def parse_pdf(pdf_path):
                     b=output['reading_bbox'];f=fragment['box'];output['reading_bbox']=[min(b[0],f[0]),min(b[1],f[1]),max(b[2],f[2]),max(b[3],f[3])]
                 else:blocks.append({'id':f"p{page_index+1}_b{len(blocks)+1}",'text':fragment['text'],'rects':[fragment['rect']],'reading_bbox':fragment['box']})
                 previous=fragment
-            pages.append({"page":page_index+1,"width":page.rect.width,"height":page.rect.height,"blocks":blocks})
+            pages.append({"page":page_index+1,"width":page.rect.width,"height":page.rect.height,"blocks":annotate_blocks(blocks,page_labels(page))})
         return {"meta":{"page_count":len(document),"geometry_version":1,"reading_order_version":2},"pages":pages}

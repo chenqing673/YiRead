@@ -122,6 +122,41 @@ async function main(){
   await run('setReaderLayout("page")');assert.equal(d.querySelectorAll('[data-block]').length,6);assert.match(d.querySelector('.layout-note').textContent,/完整译文/);
   assert.equal(d.querySelectorAll('.layout-paper').length,0);assert.equal(posts.length,beforeLayoutPosts);
   console.log('PASS DOM layout recovery: new translations appear without losing hidden IDs; API failure retains full text');
+  w.fetch=originalFetch;
+  paper.pages[0].blocks.push({id:'atom-n',text:'N',role:'diagram-label'});
+  translation.blocks.push({id:'atom-n',translation:'氮'});
+  await run('setReaderLayout("flow")');assert.equal(d.querySelector('[data-block="atom-n"]'),null);
+  assert.match(d.querySelector('#page-1').textContent,/化合物1/);
+  w.fetch=async(url,options)=>{
+    const response=await originalFetch(url,options);
+    if(url.startsWith('/api/translation-layout/')){
+      const json=await response.json();json.data.fallback='此页旧译文缺少段落位置，已显示完整译文';
+      return {...response,json:async()=>json};
+    }
+    return response;
+  };
+  await run('setReaderLayout("page")');
+  assert.equal(d.querySelectorAll('.layout-paper').length,0);assert.equal(d.querySelector('[data-block="atom-n"]'),null);
+  assert.match(d.querySelector('#page-1').textContent,/化合物1/);assert.match(d.querySelector('.layout-note').textContent,/完整译文/);
+  w.fetch=originalFetch;
+  const parent=translation.blocks.find(b=>b.id==='p1_a');parent.layout_version=1;
+  parent.segments=[{id:'part-left',text:'Left prose',translation:'左栏完整译文',rects:[[.1,.2,.45,.3]]},{id:'part-right',text:'Right prose',translation:'右栏完整译文',rects:[[.55,.2,.9,.3]]}];
+  w.fetch=async(url,options)=>{
+    const response=await originalFetch(url,options);
+    if(url==='/api/translation-layout/domtest/1'){
+      const json=await response.json();json.data.blocks=json.data.blocks.filter(b=>b.id!=='p1_a');
+      json.data.blocks.push(...parent.segments.map((s,i)=>({id:s.id,placement:'replace',box:s.rects[0],font_size:11,kind:'body'})));
+      return {...response,json:async()=>json};
+    }
+    return response;
+  };
+  await run('refreshTranslations()');
+  assert.equal(d.querySelector('[data-block="p1_a"]'),null);
+  assert.equal(d.querySelector('[data-block="part-left"]').classList.contains('layout-textbox'),true);
+  assert.equal(d.querySelector('[data-block="part-right"]').dataset.parent,'p1_a');
+  assert.match(d.querySelector('[data-block="part-left"]').textContent,/左栏完整译文/);
+  assert.equal(posts.length,beforeLayoutPosts);
+  console.log('PASS DOM chemistry/legacy: atom translations disappear; old pages show Chinese; positioned parts use original columns and parent IDs');
 }
 main().then(()=>dom.window.close()).catch(error=>{console.error(error);dom.window.close();process.exitCode=1;});
 

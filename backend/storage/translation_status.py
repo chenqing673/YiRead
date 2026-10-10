@@ -1,6 +1,7 @@
 from storage.jobs import get_translation_job_by_paper
 from storage.translation_store import get_translation
 from storage.paper_reader import get_paper
+from storage.diagram_labels import translatable
 
 
 def get_translation_status(paper_id):
@@ -9,7 +10,7 @@ def get_translation_status(paper_id):
     if simulated and (not job or job.get('status')=='completed'):
         return {'job_id':None,'status':'not_started','progress':0,'error':'旧版模拟译文，请重新翻译'}
     paper=get_paper(paper_id) or {'pages':[]}
-    expected={b['id'] for p in paper['pages'] for b in p['blocks'] if b.get('text','').strip()}
+    expected={b['id'] for p in paper['pages'] for b in p['blocks'] if translatable(b)}
     actual={b['id'] for b in result.get('blocks',[]) if b.get('translation')}
     if job and result.get('target_lang')!=job.get('target_lang'):actual=set()
     coverage=int(len(expected&actual)/max(1,len(expected))*100)

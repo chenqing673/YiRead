@@ -102,7 +102,26 @@ class TranslationLayout(unittest.TestCase):
         self.paper.write_text(json.dumps(data));self.translated.write_text(json.dumps({'engine':'openai-compatible','blocks':[{'id':'legacy','translation':'完整旧译文'}]}))
         plan=translation_layout.get_translation_layout('fixture',1)
         self.assertEqual(plan['blocks'][0]['placement'],'preserve')
+        self.assertIn('完整译文',plan['fallback'])
         with pdf_view.PDF_LOCK,translation_layout.background_document('fixture',plan) as document:self.assertIn('Left researchers',document[0].get_text())
+
+    def test_legacy_positioned_parts_replace_each_column_without_losing_parent(self):
+        parsed=json.loads(self.paper.read_text())['pages'][0]['blocks']
+        parts=[dict(b,id='legacy__layout_'+b['id'],translation='对应的完整中文译文') for b in parsed]
+        self.paper.write_text(json.dumps({'pages':[{'page':1,'blocks':[{'id':'legacy','text':' '.join(b['text'] for b in parsed),'rects':[r for b in parsed for r in b['rects']]}]}]}))
+        self.translated.write_text(json.dumps({'engine':'openai-compatible','blocks':[{'id':'legacy','layout_version':1,'segments':parts,'translation':'完整旧译文'}]}))
+        plan=translation_layout.get_translation_layout('fixture',1)
+        self.assertIsNone(plan['fallback'])
+        replacements=[b for b in plan['blocks'] if b['placement']=='replace']
+        self.assertGreaterEqual(len(replacements),3)
+        self.assertTrue(all(b['id'].startswith('legacy__layout_') for b in replacements))
+        with pdf_view.PDF_LOCK,translation_layout.background_document('fixture',plan) as document:
+            text=document[0].get_text();self.assertNotIn('researchers investigated',text);self.assertIn('75%',text)
+
+    def test_experimental_prose_with_nmr_symbols_is_translated(self):
+        text='The compound was characterized using NMR spectroscopy: δ = 1.5, δ = 2.0, δ = 3.5. The resulting product was isolated in good yield.'
+        kind,_=translation_layout.region_kind({'text':text},[.1,.4,.48,.6],[],[])
+        self.assertEqual(kind,'body')
 
 
 if __name__=='__main__':unittest.main(verbosity=2)

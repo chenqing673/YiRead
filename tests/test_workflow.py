@@ -445,4 +445,38 @@ class Workflow(unittest.TestCase):
         self.assertEqual(self.call('/api/translation-layout/page-layout/0')[0],400)
         self.assertEqual(len(Provider.calls),count)
 
+    def test_28_worker_skips_structure_labels_and_progress_excludes_them(self):
+        self.configure();self.seed('diagram')
+        path=Path(config.get_data_path('library'),'diagram','paper.json')
+        paper=json.loads(path.read_text());paper['pages'][0]['blocks'].extend([{'id':'atomN','text':'N','role':'diagram-label'},{'id':'atomO','text':'O','role':'diagram-label'}])
+        write_json_atomic(str(path),paper);before=path.read_bytes();requested=[]
+        def translate(text,*args,**kwargs):requested.append(text);return '译文：'+text
+        with patch.object(translation_worker,'translate',translate):
+            job=self.call('/api/translation',{'paper_id':'diagram'})[1]['data'];self.assertEqual(self.wait_job(job['job_id'])['status'],'completed')
+        self.assertEqual(requested,['Hello','World'])
+        self.assertEqual(get_translation_status('diagram')['document_progress'],100)
+        self.assertEqual(path.read_bytes(),before)
+
+    def test_29_legacy_retranslation_saves_column_positions_without_sentence_mode(self):
+        import pymupdf
+        self.configure();self.seed('legacy-layout');folder=Path(config.get_data_path('library'),'legacy-layout')
+        with pymupdf.open() as doc:
+            page=doc.new_page(width=600,height=800)
+            for x,prefix in [(40,'Left'),(320,'Right')]:
+                page.insert_textbox(pymupdf.Rect(x,120,x+240,600),(prefix+' researchers investigated chemical conditions and reported synthetic yields. ')*9,fontsize=11)
+            doc.save(folder/'source.pdf')
+            source=page.get_text()
+        self.assertGreater(len(source),1000)
+        write_json_atomic(str(folder/'paper.json'),{'pages':[{'page':1,'blocks':[{'id':'old-id','text':source}]}]})
+        before=(folder/'paper.json').read_bytes()
+        job=self.call('/api/translation',{'paper_id':'legacy-layout','force':True,'aligned':False})[1]['data']
+        self.assertEqual(self.wait_job(job['job_id'])['status'],'completed')
+        output=get_translation('legacy-layout')['blocks'][0]
+        self.assertEqual(output['id'],'old-id');self.assertEqual(output['layout_version'],1)
+        self.assertEqual(len(output['segments']),2)
+        self.assertTrue(all(s['rects'] for s in output['segments']))
+        plan=self.call('/api/translation-layout/legacy-layout/1')[1]['data']
+        self.assertEqual([b['placement'] for b in plan['blocks']],['replace','replace'])
+        self.assertEqual(before,(folder/'paper.json').read_bytes())
+
 if __name__=='__main__':unittest.main(verbosity=2)

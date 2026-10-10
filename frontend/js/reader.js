@@ -84,8 +84,9 @@ function buildPages() {
     section.append(el('h2','page-title','PAGE ' + String(page.page).padStart(2,'0')));
     if (!page.blocks.length) section.append(el('p','block-text placeholder','本页没有可提取的文字。请打开原始 PDF 查看图片或扫描内容。'));
     for (const original of page.blocks) {
+      if(original.role==='diagram-label')continue;
       const segments=translatedBlocks[original.id]?.segments;
-      for(const block of segments?.length && readerLayoutMode==='flow' ? segments : [original]) {
+      for(const block of segments?.length && (readerLayoutMode==='flow' || translatedBlocks[original.id]?.layout_version===1) ? segments : [original]) {
       const target=el('div','block-text translation-text');target.dataset.block=block.id;target.dataset.page=page.page;target.tabIndex=0;
       target.dataset.parent=original.id;
       if(segments?.length)pdfFollower.blocks.set(block.id,{page:page.page,rects:block.rects || []});
@@ -119,7 +120,7 @@ async function refreshTranslations() {
   catch(error) {if(error.code===404) return;throw error;}
   translations={};
   translatedBlocks=Object.fromEntries((result.data.blocks || []).map(block=>[block.id,block]));
-  const shape=JSON.stringify((result.data.blocks || []).filter(b=>b.segments?.length).map(b=>[b.id,b.segments.map(s=>s.id)]));
+  const shape=JSON.stringify((result.data.blocks || []).filter(b=>b.segments?.length).map(b=>[b.id,b.layout_version || 0,b.segments.map(s=>s.id)]));
   if(shape!==translationShape) {
     const top=translationScroll.scrollTop;const active=activeTranslation?.dataset.block;
     translationShape=shape;buildPages();activeTranslation=null;activeSentence=null;
@@ -176,7 +177,7 @@ translateButton.onclick=async()=>{
 };
 document.getElementById('export-btn').onclick=()=>{
   const text=['# ' + (item.title || paperId)];
-  for (const page of paper.pages) {text.push('\n## 第 ' + page.page + ' 页');for (const block of page.blocks) {if (translations[block.id]) text.push(translations[block.id]);}}
+  for (const page of paper.pages) {text.push('\n## 第 ' + page.page + ' 页');for (const block of page.blocks) {if (block.role!=='diagram-label' && translations[block.id]) text.push(translations[block.id]);}}
   downloadText((item.title || paperId).replace(/[\\/:*?"<>|]/g,'_') + ' - 译文.md',text.join('\n\n'));
 };
 function sentenceAtReadingLine(node,pointerY) {
