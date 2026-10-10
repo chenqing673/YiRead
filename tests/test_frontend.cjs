@@ -24,7 +24,7 @@ class Element {
 function context(api, reader=false){
   const elements=new Map();const storage=new Map();const session=new Map();const listeners={};
   const get=id=>{if(!elements.has(id))elements.set(id,new Element());return elements.get(id);};
-  const document={getElementById:get,createElement:tag=>new Element(tag),querySelectorAll:()=>[],body:new Element('body'),documentElement:new Element('html'),hidden:false};
+  const document={getElementById:get,createElement:tag=>new Element(tag),querySelector:()=>null,querySelectorAll:()=>[],body:new Element('body'),documentElement:new Element('html'),hidden:false};
   document.documentElement.scrollHeight=2000;
   get('sort-select').value='recent';get('search-input').value='';
   const ctx=vm.createContext({document,location:{search:reader?'?id=sample':'',href:''},URLSearchParams,localStorage:{getItem:k=>storage.get(k)||null,setItem:(k,v)=>storage.set(k,String(v)),removeItem:k=>storage.delete(k)},setInterval:()=>0,setTimeout:()=>0,clearTimeout:()=>{},requestAnimationFrame:fn=>fn(),window:{addEventListener:(name,fn)=>listeners[name]=fn,scrollTo:()=>{}},apiFetch:api,apiPost:async()=>({data:{status:'pending'}}),console,innerHeight:800,scrollY:300});
@@ -33,6 +33,7 @@ function context(api, reader=false){
   vm.runInContext(fs.readFileSync('frontend/js/pdf-follow.js','utf8'),ctx);
   vm.runInContext(fs.readFileSync('frontend/js/reading-format.js','utf8'),ctx);
   vm.runInContext(fs.readFileSync('frontend/js/reader-layout.js','utf8'),ctx);
+  vm.runInContext(fs.readFileSync('frontend/js/reader-media.js','utf8'),ctx);
   ctx.sessionStorage={getItem:key=>session.get(key)||null,setItem:(key,value)=>session.set(key,String(value))};
   ctx.apiAuthedGet=api;
   return {ctx,get,document,storage,listeners,session};

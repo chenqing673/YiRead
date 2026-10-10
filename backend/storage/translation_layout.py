@@ -13,7 +13,7 @@ import pymupdf
 from core.config import get_data_path
 from storage.paper_reader import get_paper
 from storage.pdf_view import PDF_LOCK, source_path, locate_legacy_blocks, normalized_rect
-from storage.translation_store import get_translation
+from storage.translation_store import get_translation, translation_revision
 
 
 def overlap(a, b):
@@ -27,9 +27,10 @@ def ruled_table_regions(page):
     groups=[]
     for drawing in page.get_drawings():
         for item in drawing['items']:
-            if item[0]!='l':
-                continue
-            a,b=item[1:3]
+            if item[0]=='re' and item[1].height<=1:
+                a,b=item[1].tl,item[1].br
+            elif item[0]=='l':a,b=item[1:3]
+            else:continue
             x0,x1=sorted((a.x,b.x))
             if abs(a.y-b.y)>1 or x1-x0<page.rect.width*.15:
                 continue
@@ -87,7 +88,11 @@ def stamps(paper_id):
 
 
 def get_translation_layout(paper_id, page_number):
-    return _layout(paper_id, page_number, *stamps(paper_id))
+    for _ in range(3):
+        before=stamps(paper_id)
+        plan=_layout(paper_id,page_number,*before)
+        if stamps(paper_id)==before:return plan
+    raise ValueError('translation is changing')
 
 
 @lru_cache(maxsize=16)
@@ -155,9 +160,9 @@ def _layout(paper_id, page_number, source_stamp, paper_stamp, translation_stamp)
         fallback = None
         if not any(e['placement']=='replace' for e in entries) and any(e['placement']=='preserve' and e.get('reason') in ('文字跨越多个栏位','没有可靠位置','文字区域重叠，保留原文') for e in entries):
             fallback = '此页旧译文缺少段落位置，已显示完整译文；重译本页后可按原栏位排版。'
-        version = hashlib.sha256(repr((paper_id, page_number, source_stamp, paper_stamp, translation_stamp, 'layout-v4')).encode()).hexdigest()[:24]
+        version = hashlib.sha256(repr((paper_id, page_number, source_stamp, paper_stamp, translation_stamp, 'layout-v6')).encode()).hexdigest()[:24]
         return {'page': page_number, 'width': page.rect.width, 'height': page.rect.height,
-                'version': version, 'blocks': entries, 'fallback': fallback,
+                'version': version, 'blocks': entries, 'fallback': fallback, 'revision':translation_revision(translated),
                 'background': f'/api/translation-background/{paper_id}/{page_number}?v={version}'}
 
 

@@ -1,7 +1,8 @@
 // Optional page layout uses local geometry and cached translations, never a model.
 class ReaderPageLayout {
-  constructor(paperId, scroll, openFlow) {
-    this.paperId=paperId;this.scroll=scroll;this.openFlow=openFlow;this.generation=0;this.states=new Map();
+  constructor(paperId, scroll, openFlow, retry=()=>{}) {
+    this.retry=retry;
+    this.paperId=paperId;this.scroll=scroll;this.openFlow=openFlow;this.generation=0;this.states=new Map();this.backgroundFailures=new Set();
     this.zoom=Number(localStorage.getItem('yiread-layout-zoom')) || 100;
     if(![100,125,150,200].includes(this.zoom))this.zoom=100;
     this.resizeObserver=typeof ResizeObserver==='function'?new ResizeObserver(()=>this.resize()):null;
@@ -9,13 +10,14 @@ class ReaderPageLayout {
     window.addEventListener('resize',()=>this.resize());
     document.fonts?.ready.then(()=>this.resize());
   }
-  reset(){this.generation++;this.states.clear();}
+  reset(){this.generation++;this.states.clear();this.backgroundFailures.clear();}
   setZoom(value){this.zoom=[100,125,150,200].includes(Number(value))?Number(value):100;localStorage.setItem('yiread-layout-zoom',this.zoom);this.resize();}
-  async update(paper, outputs) {
-    const generation=this.generation;
+  async update(paper, outputs, revision='') {
+    const generation=++this.generation;
+    let stale=false;
     const pending=paper.pages.map(page=>{
       const section=document.getElementById('page-'+page.page);
-      const signature=JSON.stringify(page.blocks.map(b=>[b.id,outputs[b.id]?.translation || '']));
+      const signature=JSON.stringify([revision,page.blocks.map(b=>[b.id,outputs[b.id]?.layout_version || 0,outputs[b.id]?.translation || ''])]);
       const existing=this.states.get(page.page);
       if(existing?.signature===signature){this.fit(existing);return null;}
       return {page,section,signature};
@@ -28,14 +30,19 @@ class ReaderPageLayout {
           const {data}=await apiFetch('/api/translation-layout/'+encodeURIComponent(this.paperId)+'/'+task.page.page,{},true);
           if(generation!==this.generation || !task.section.isConnected)continue;
           if(!data?.width || !data?.blocks || !data.background)throw new Error('排版数据不完整');
+          const outdated=revision && data.revision && revision!==data.revision;
+          const missing=data.blocks.some(entry=>entry.placement==='untranslated' && (outputs[entry.id]?.translation || Object.values(outputs).some(b=>b.segments?.some(s=>s.id===entry.id && s.translation))));
+          if(outdated || missing){stale=true;this.fallback(task.section,'译文排版正在更新，先显示完整译文。');continue;}
           this.apply(task.section,data,task.signature);
         }catch(error){
           if(generation!==this.generation || !task.section.isConnected)continue;
+          if(!error.code || error.code===409 || error.code>=500)stale=true;
           this.fallback(task.section,'本页暂无法保持原版式，已展示完整译文。');
         }
       }
     };
     await Promise.all([worker(),worker()]);
+    return !stale && !this.backgroundFailures.size;
   }
   fallback(section,message){
     const nodes=Array.from(section.querySelectorAll('[data-block]'));
@@ -45,6 +52,7 @@ class ReaderPageLayout {
     this.states.delete(Number(section.dataset.page));
   }
   apply(section,plan,signature){
+    this.backgroundFailures.delete(plan.page);
     if(plan.fallback){this.fallback(section,plan.fallback);return;}
     const nodes=Array.from(section.querySelectorAll('[data-block]'));const heading=section.querySelector('.page-title');
     if(!plan.blocks.some(b=>b.placement==='replace') && nodes.some(n=>!n.classList.contains('placeholder'))){
@@ -54,7 +62,7 @@ class ReaderPageLayout {
     const canvas=el('div','layout-canvas');const sheet=el('div','layout-paper');
     sheet.style.width=plan.width+'px';sheet.style.height=plan.height+'px';
     const background=el('img','layout-background');background.alt='第 '+plan.page+' 页，保留图表的原版排版背景';background.loading='lazy';background.decoding='async';background.src=plan.background;
-    background.onerror=()=>{if(section.contains(background))this.fallback(section,'页面背景未载入，已展示完整译文。可切回连续阅读后重试。');};
+    background.onerror=()=>{if(section.contains(background)){this.backgroundFailures.add(plan.page);this.fallback(section,'页面背景未载入，已展示完整译文，将自动重试。');this.retry();}};
     sheet.append(background);canvas.append(sheet);section.append(canvas);
     const preserved=el('details','layout-preserved-list');preserved.open=true;const summary=el('summary');preserved.append(summary);let count=0;
     const state={plan,signature,section,canvas,sheet,positioned:[]};

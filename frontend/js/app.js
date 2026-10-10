@@ -1,4 +1,4 @@
-let papers = [], filter = 'all', loading = false, importBusy = false;
+let papers = [], filter = 'all', loading = false, importBusy = false, failedImports=[];
 const container = document.getElementById('library');
 const search = document.getElementById('search-input');
 const mottos=[
@@ -70,20 +70,26 @@ async function loadLibrary() {
 async function importFiles(files) {
   if (importBusy || !files.length) return;
   importBusy=true; const button=document.getElementById('import-btn'); button.disabled=true;
-  const status=document.getElementById('import-status'); let count=0,duplicates=0;
+  const status=document.getElementById('import-status'); let count=0,duplicates=0;failedImports=[];
   try {
     for (const file of files) {
-      if (!file.name.toLowerCase().endsWith('.pdf') || file.size > 50*1024*1024) { showError(file.name + '：仅支持 50 MB 以内的 PDF'); continue; }
+      if (!file.name.toLowerCase().endsWith('.pdf') || file.size > 50*1024*1024) { failedImports.push(file);showError(file.name + '：仅支持 50 MB 以内的 PDF'); continue; }
       status.textContent='正在导入 ' + file.name + '…';
       try {
-        for (let attempt=0;attempt<2;attempt++) {
+        for (let attempt=0;attempt<3;attempt++) {
           const token=await ensureToken(); const form=new FormData(); form.append('file',file);
           try {const {data}=await apiFetch('/api/import',{method:'POST',headers:{'X-Token':token},body:form},true);if(data.duplicate)duplicates++;else count++;break; }
-          catch(error) { if (error.code !== 403 || attempt) throw error; }
+          catch(error) {
+            if(attempt===2 || (error.code && error.code!==403 && error.code<500))throw error;
+            status.textContent=file.name+'：暂未导入成功，正在重试…';
+            if(error.code!==403)await new Promise(resolve=>setTimeout(resolve,500*(attempt+1)));
+          }
         }
-      } catch(error) { showError(file.name + '：' + error.message); }
+      } catch(error) { failedImports.push(file);showError(file.name + '：' + error.message); }
     }
-    status.textContent='已导入 ' + count + ' 篇文献'+(duplicates?'，跳过 '+duplicates+' 篇重复文件':''); await loadLibrary();
+    status.textContent='已导入 ' + count + ' 篇文献'+(duplicates?'，跳过 '+duplicates+' 篇重复文件':'')+(failedImports.length?'，'+failedImports.length+' 个文件未成功':'');
+    if(failedImports.length){const retry=el('button','quiet','重试失败文件');retry.onclick=()=>importFiles([...failedImports]);status.append(' ',retry);}
+    await loadLibrary();
   } finally { importBusy=false;button.disabled=false;document.getElementById('file-input').value=''; }
 }
 document.getElementById('import-btn').onclick=()=>document.getElementById('file-input').click();

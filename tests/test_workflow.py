@@ -439,6 +439,8 @@ class Workflow(unittest.TestCase):
         write_json_atomic(str(Path(config.get_data_path('translation'),'page-layout.json')),{'engine':'openai-compatible','blocks':[{'id':block['id'],'translation':'研究人员考察反应条件并报告收率。'}]})
         count=len(Provider.calls)
         status,result=self.call('/api/translation-layout/page-layout/1');self.assertEqual(status,200)
+        translated=self.call('/api/translation/page-layout')[1]['data']
+        self.assertEqual(result['data']['revision'],translated['revision'])
         self.assertEqual(result['data']['blocks'][0]['placement'],'replace')
         with self.opener.open(self.base+result['data']['background']) as response:self.assertTrue(response.read().startswith(b'\x89PNG'))
         self.assertEqual(self.call('/api/translation-background/page-layout/1?v=old')[0],409)
@@ -478,5 +480,26 @@ class Workflow(unittest.TestCase):
         plan=self.call('/api/translation-layout/legacy-layout/1')[1]['data']
         self.assertEqual([b['placement'] for b in plan['blocks']],['replace','replace'])
         self.assertEqual(before,(folder/'paper.json').read_bytes())
+
+    def test_30_continuous_original_table_endpoints_are_local_and_versioned(self):
+        import pymupdf
+        from storage.pdf_parser import parse_pdf
+        self.seed('media-endpoint');folder=Path(config.get_data_path('library'),'media-endpoint')
+        with pymupdf.open() as doc:
+            page=doc.new_page(width=600,height=800)
+            page.insert_text((40,90),'Table 1. Experimental data.',fontsize=10)
+            for y in [110,130,230]:page.draw_rect(pymupdf.Rect(40,y,300,y+.5),color=None,fill=(0,0,0))
+            page.insert_text((50,125),'Entry  Solvent  Yield',fontsize=10)
+            page.insert_textbox(pymupdf.Rect(50,140,290,220),'1  Methanol  75%\n2  Ethanol  80%',fontsize=10)
+            doc.save(folder/'source.pdf')
+        write_json_atomic(str(folder/'paper.json'),parse_pdf(folder/'source.pdf'))
+        count=len(Provider.calls);before=(folder/'source.pdf').read_bytes()
+        code,result=self.call('/api/reading-media/media-endpoint');self.assertEqual(code,200)
+        table=result['data']['pages'][0]['assets'][0];self.assertEqual(table['kind'],'table')
+        with self.opener.open(self.base+table['url']) as response:
+            self.assertEqual(response.headers['Content-Type'],'image/png');self.assertTrue(response.read().startswith(b'\x89PNG'))
+        self.assertEqual(self.call(table['url'].split('?')[0]+'?v=old')[0],409)
+        self.assertEqual(self.call('/api/reading-media-image/media-endpoint/0/p1_media1')[0],400)
+        self.assertEqual(len(Provider.calls),count);self.assertEqual(before,(folder/'source.pdf').read_bytes())
 
 if __name__=='__main__':unittest.main(verbosity=2)

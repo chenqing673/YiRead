@@ -6,7 +6,12 @@ const translationScroll=document.getElementById('translation-scroll');
 const pdfFollower=new PdfFollower(paperId);
 let readerLayoutMode=localStorage.getItem('yiread-layout')==='page'?'page':'flow';
 let layoutChanging=false;
-const pageLayout=new ReaderPageLayout(paperId,translationScroll,id=>setReaderLayout('flow',id));
+let readerLoading=true,translationRefreshNeeded=true,refreshSerial=0;
+const pageLayout=new ReaderPageLayout(paperId,translationScroll,id=>setReaderLayout('flow',id),()=>{translationRefreshNeeded=true;});
+const flowMedia=new ReaderFlowMedia(paperId,()=>readerLayoutMode==='flow',(asset,page)=>{
+  pdfFollower.blocks.set(asset.id,{page,rects:[asset.box],kind:'figure'});pdfFollower.focus(asset.id,true);
+  observedPage=page;document.getElementById('page-select').value=page;
+});
 let activeTranslation=null;
 let activeSentence=null;
 let translatedBlocks={},translationShape='';
@@ -31,7 +36,7 @@ function updateLayoutControls(){
   document.getElementById('layout-zoom').value=pageLayout.zoom;
 }
 async function setReaderLayout(mode,targetId){
-  if(layoutChanging)return;
+  if(layoutChanging || readerLoading)return;
   const previous=activeTranslation?.dataset.block;
   const parentId=targetId || activeTranslation?.dataset.parent || previous;
   readerLayoutMode=mode==='page'?'page':'flow';localStorage.setItem('yiread-layout',readerLayoutMode);updateLayoutControls();
@@ -115,9 +120,11 @@ function navigateReaderPage(value){
   document.getElementById('page-select').value=value;pdfFollower.page(value);
 }
 async function refreshTranslations() {
+  const serial=++refreshSerial;
   let result;
   try {result=await apiFetch('/api/translation/' + encodeURIComponent(paperId),{},true);}
-  catch(error) {if(error.code===404) return;throw error;}
+  catch(error) {if(serial!==refreshSerial)return;if(error.code===404){translationRefreshNeeded=false;if(readerLayoutMode==='flow')flowMedia.update(paper);return;}throw error;}
+  if(serial!==refreshSerial)return;
   translations={};
   translatedBlocks=Object.fromEntries((result.data.blocks || []).map(block=>[block.id,block]));
   const shape=JSON.stringify((result.data.blocks || []).filter(b=>b.segments?.length).map(b=>[b.id,b.layout_version || 0,b.segments.map(s=>s.id)]));
@@ -155,19 +162,22 @@ async function refreshTranslations() {
     node.classList.toggle('placeholder',!text);
   });
   if(typeof applyReaderNotes==='function')applyReaderNotes();
-  if(readerLayoutMode==='page')await pageLayout.update(paper,translatedBlocks);
+  const fresh=readerLayoutMode==='page' ? await pageLayout.update(paper,translatedBlocks,result.data.revision || '') : true;
+  if(serial!==refreshSerial)return;
+  translationRefreshNeeded=!fresh;
+  if(readerLayoutMode==='flow')flowMedia.update(paper);
   document.getElementById('export-btn').disabled=!Object.keys(translations).length;
   if (legacy) document.getElementById('status').textContent='检测到旧版模拟译文。请配置翻译服务并重新翻译，获得真实译文。';
 }
 async function pollStatus() {
-  if (!paperId || pollBusy || document.hidden || !paper) return;
+  if (!paperId || pollBusy || layoutChanging || document.hidden || !paper) return;
   pollBusy=true;
   try {
     const {data:ts}=await apiFetch('/api/translation/status/' + encodeURIComponent(paperId),{},true);
-    const changed=!currentStatus || ts.status!==currentStatus.status || ts.progress!==currentStatus.progress || ts.completed!==currentStatus.completed;
+    const changed=translationRefreshNeeded || !currentStatus || ts.status!==currentStatus.status || ts.progress!==currentStatus.progress || ts.completed!==currentStatus.completed;
     updateStatus(ts);
-    if(changed) {await refreshTranslations();updateReadingPosition();}
-  } catch(error) {document.getElementById('translation-status').textContent='状态更新失败，将自动重试';}
+    if(changed) {translationRefreshNeeded=true;await refreshTranslations();updateReadingPosition();}
+  } catch(error) {translationRefreshNeeded=true;document.getElementById('translation-status').textContent='状态更新失败，将自动重试';}
   finally {pollBusy=false;}
 }
 translateButton.onclick=async()=>{
@@ -276,6 +286,9 @@ translationScroll.addEventListener('scroll',()=>{
 },{passive:true});
 window.addEventListener('resize',()=>{updateReadingPosition();if(activeTranslation)pdfFollower.focus(activeSentence?.dataset.follow || activeTranslation.dataset.block,true);});
 async function loadReader() {
+  readerLoading=true;
+  document.querySelectorAll('button[data-layout]').forEach(b=>b.disabled=true);
+  document.getElementById('page-select').disabled=true;
   const status=document.getElementById('status');
   let saved;try {saved=JSON.parse(localStorage.getItem('yiread-progress-' + paperId));}catch(error){}
   if (!paperId) {status.textContent='缺少文献编号，请返回文献库重新打开。';return;}
@@ -299,7 +312,8 @@ async function loadReader() {
     });
     translateButton.disabled=['pending','running'].includes(currentStatus?.status);
   } catch(error) {status.textContent='无法打开文献：' + error.message;const retry=el('button','','重试加载');retry.onclick=loadReader;status.append(' ',retry);}
+  finally{readerLoading=false;document.querySelectorAll('button[data-layout]').forEach(b=>b.disabled=false);document.getElementById('page-select').disabled=false;}
 }
 const readerReady=loadReader();
-setInterval(()=>{if(['pending','running'].includes(currentStatus?.status)) pollStatus();},3000);
+setInterval(()=>{if(translationRefreshNeeded || ['pending','running'].includes(currentStatus?.status)) pollStatus();},3000);
 window.addEventListener('focus',pollStatus);

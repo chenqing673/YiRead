@@ -65,6 +65,18 @@ class TranslationLayout(unittest.TestCase):
             self.assertTrue(image.startswith(b'\x89PNG'))
         self.assertTrue(all(p.read_bytes()==value for p,value in before.items()))
 
+    def test_plan_rechecks_translation_revision_if_file_changes_during_layout(self):
+        compute=translation_layout._layout;updated=[]
+        def changing(*args):
+            plan=compute(*args)
+            if not updated:
+                data=json.loads(self.translated.read_text());data['blocks'][0]['translation']='翻译完成后的最新译文'
+                self.translated.write_text(json.dumps(data));updated.append(True)
+            return plan
+        with patch.object(translation_layout,'_layout',side_effect=changing):
+            plan=translation_layout.get_translation_layout('fixture',1)
+        self.assertEqual(plan['revision'],translation_store.translation_revision(json.loads(self.translated.read_text())))
+
     def test_three_rule_table_without_vertical_lines_keeps_cells_and_neighboring_prose(self):
         with pymupdf.open() as document:
             page=document.new_page(width=600,height=800)

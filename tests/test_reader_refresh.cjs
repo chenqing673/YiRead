@@ -1,0 +1,62 @@
+// Cold original-layout startup, completed-job recovery, and real media DOM.
+const {JSDOM}=require('jsdom');
+const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict');
+const dom=new JSDOM(fs.readFileSync('frontend/reader.html','utf8'),{url:'http://127.0.0.1:8765/reader.html?id=refresh',runScripts:'outside-only',pretendToBeVisual:true});
+const w=dom.window,d=w.document,run=code=>vm.runInContext(code,dom.getInternalVMContext());
+const paper={pages:[1,2,3].map(page=>({page,blocks:[{id:'p'+page,text:'Original scientific prose '+page,rects:[[.1,.2,.8,.3]]}]}))};
+let revision='finished',layoutRevision='finished',failTranslation=false,failBackground=false;
+const calls=[],posts=[];
+w.localStorage.setItem('yiread-layout','page');
+w.fetch=async(url,options={})=>{
+  calls.push(url);let data={};if(options.method==='POST')posts.push(url);
+  if(failTranslation && url==='/api/translation/refresh')return {ok:false,status:503,json:async()=>({status:'error',message:'temporary'})};
+  if(url==='/api/token')data={token:'fixture'};
+  else if(url.startsWith('/api/item/'))data={title:'Cold layout'};
+  else if(url.startsWith('/api/paper/'))data=paper;
+  else if(url.startsWith('/api/pdf-layout/'))data=paper;
+  else if(url.startsWith('/api/translation/status/'))data={status:'completed',progress:100};
+  else if(url==='/api/translation/refresh')data={engine:'openai-compatible',revision,blocks:paper.pages.map(p=>({id:'p'+p.page,translation:'第'+p.page+'页完整中文译文'}))};
+  else if(url.startsWith('/api/translation-layout/')){
+    const page=Number(url.split('/').pop());data={page,width:600,height:800,revision:layoutRevision,background:'/local-background-'+page+'.png',blocks:[{id:'p'+page,placement:'replace',box:[.1,.2,.8,.3],font_size:12}]};
+  }else if(url==='/api/reading-media/refresh')data={pages:[{page:1,assets:[{id:'table1',kind:'table',box:[.1,.2,.8,.3],width:420,height:80,url:'/local-table.png',covered:['p1'],anchor:'p1'},{id:'figure1',kind:'figure',box:[.1,.4,.8,.5],width:420,height:80,url:'/local-figure.png',covered:[],anchor:null}]}]};
+  else if(url.startsWith('/api/notes/'))data={notes:{},version:0};
+  return {ok:true,status:200,json:async()=>({status:'ok',data})};
+};
+w.HTMLElement.prototype.scrollTo=function(v){this.scrollTop=v.top||0;};
+w.HTMLElement.prototype.scrollIntoView=function(){};
+w.HTMLDialogElement.prototype.showModal=function(){this.open=true;};
+w.HTMLDialogElement.prototype.close=function(){this.open=false;this.dispatchEvent(new w.Event('close'));};
+w.HTMLElement.prototype.getBoundingClientRect=function(){return {top:0,left:0,right:600,bottom:800,width:600,height:800};};
+for(const s of d.querySelectorAll('script[src]'))run(fs.readFileSync('frontend/'+s.getAttribute('src').split('?')[0],'utf8'));
+(async()=>{
+  await run('readerNotesReady');
+  assert.equal(d.querySelectorAll('.layout-textbox').length,3);
+  for(const page of [1,2,3])assert.ok(calls.includes('/api/translation-layout/refresh/'+page));
+  assert.equal(d.getElementById('translation-scroll').scrollTop,0);assert.equal(posts.length,0);
+  console.log('PASS cold layout: all pages translated without first visiting continuous reading or scrolling');
+  revision='just-finished';layoutRevision='old';await run('refreshTranslations()');
+  assert.equal(d.querySelectorAll('.layout-paper').length,0);assert.match(d.querySelector('#page-3').textContent,/完整中文译文/);
+  assert.equal(run('translationRefreshNeeded'),true);
+  layoutRevision=revision;await run('pollStatus()');
+  assert.equal(d.querySelectorAll('.layout-textbox').length,3);assert.equal(run('translationRefreshNeeded'),false);
+  failTranslation=true;revision='new';await run('pollStatus()');
+  // An edit/status refresh failure must keep a retry pending after completion.
+  run('translationRefreshNeeded=true');await run('pollStatus()');assert.equal(run('translationRefreshNeeded'),true);
+  failTranslation=false;layoutRevision=revision;await run('pollStatus()');assert.equal(run('translationRefreshNeeded'),false);
+  const background=d.querySelector('.layout-background');background.dispatchEvent(new w.Event('error'));
+  assert.equal(run('translationRefreshNeeded'),true);await run('pollStatus()');assert.equal(d.querySelectorAll('.layout-paper').length,3);
+  console.log('PASS revision recovery: stale plans, completed refresh failures and lazy image failures retry with full Chinese fallback');
+  run('activateTranslation(content.querySelector("[data-block=p2]"),true)');
+  await run('setReaderLayout("flow")');
+  await run('flowMedia.update(paper)');
+  assert.equal(d.querySelectorAll('.reader-original-media').length,2);
+  const table=d.querySelector('[data-media="table1"]');assert.equal(table.querySelector('img').src,'http://127.0.0.1:8765/local-table.png');
+  const details=d.querySelector('.media-text-details');assert.equal(details.open,false);assert.match(details.textContent,/第1页完整中文译文/);
+  assert.equal(d.querySelector('[data-block="p1"]').closest('details'),details);
+  run('jumpReaderTarget(content.querySelector("[data-block=p1]"))');assert.equal(details.open,true);
+  table.querySelector('button').click();assert.ok(d.querySelector('.media-inspect[open] img'));d.querySelector('.media-inspect button').click();assert.equal(d.querySelector('.media-inspect'),null);
+  await run('refreshTranslations()');assert.equal(d.querySelectorAll('.reader-original-media').length,2);
+  await run('setReaderLayout("page")');assert.equal(d.querySelectorAll('.reader-original-media').length,0);
+  await run('setReaderLayout("flow")');assert.equal(d.querySelectorAll('.reader-original-media').length,2);assert.equal(posts.length,0);
+  console.log('PASS continuous media: intact local figures/tables, collapsible translations, note jump, enlargement, mode switch and no paid calls');
+})().then(()=>dom.window.close()).catch(error=>{console.error(error);dom.window.close();process.exitCode=1;});

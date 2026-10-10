@@ -23,3 +23,13 @@
 .layout-preserved-list summary{padding:10px 14px;cursor:pointer;color:var(--muted)}
 .layout-preserved::before{content:attr(data-layout-reason);display:block;color:var(--muted);font:11px/1.6 "Microsoft YaHei",sans-serif;margin-bottom:8px}
 .layout-note{font-size:12px;line-height:1.7;padding:12px 16px;color:var(--muted);background:var(--surface)}
+.reader-original-media{margin:20px 0;padding:12px;border:1px solid var(--line);background:var(--surface)}
+.media-heading{display:flex;justify-content:space-between;align-items:center;gap:12px;font-size:11px;color:var(--muted);margin-bottom:10px}
+.media-heading button{font-size:11px;padding:4px 8px}
+.reader-original-media img{display:block;width:100%;height:auto;background:white;object-fit:contain;cursor:zoom-in}
+.media-text-details{margin:0 0 20px;border:1px solid var(--line);font-size:12px}
+.media-text-details summary{padding:10px 14px;color:var(--muted);cursor:pointer}
+.media-inspect{width:min(1100px,96vw);max-height:94vh;padding:16px;overflow:auto}
+.media-inspect>button{position:sticky;top:0;display:block;margin:0 0 12px auto}
+.media-inspect img{display:block;min-width:100%;max-width:100%;height:auto;background:white}
+.media-image-retry[hidden]{display:none}

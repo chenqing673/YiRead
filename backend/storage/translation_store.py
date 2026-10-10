@@ -1,7 +1,18 @@
 import os
+import hashlib
+import json
 from core.config import get_data_path
 from utils.json_io import write_json_atomic
 from utils.json_io import read_json
+
+def translation_revision(result):
+    # Presentation-only sentence anchors must not change the saved-text revision.
+    blocks=[]
+    for block in result.get('blocks',[]):
+        value={k:v for k,v in block.items() if k!='reading_units'}
+        if value.get('segments'):value['segments']=[{k:v for k,v in s.items() if k!='reading_units'} for s in value['segments']]
+        blocks.append(value)
+    return hashlib.sha256(json.dumps({'engine':result.get('engine'),'target_lang':result.get('target_lang'),'blocks':blocks},sort_keys=True,ensure_ascii=False).encode()).hexdigest()[:24]
 
 
 def get_translation_path():

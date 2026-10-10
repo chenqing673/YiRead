@@ -8,7 +8,10 @@ def handle_translation_layout(handler, paper_id, page_number):
         success(handler, get_translation_layout(paper_id, page_number))
     except FileNotFoundError:
         error(handler, '原始 PDF 不存在，仍可使用连续阅读', 404)
-    except (ValueError, RuntimeError):
+    except ValueError as exc:
+        if 'changing' in str(exc):error(handler,'译文排版正在更新，请稍后重试',409)
+        else:error(handler,'页面无法排版，请使用连续阅读',422)
+    except RuntimeError:
         error(handler, '页面无法排版，请使用连续阅读', 422)
 
 

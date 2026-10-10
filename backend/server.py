@@ -20,6 +20,7 @@ from api.translation_status import handle_translation_status
 from api.paper import handle_paper
 from api.pdf_view import handle_pdf_layout, handle_pdf_page
 from api.translation_layout import handle_translation_layout, handle_translation_background
+from api.reading_media import handle_reading_media,handle_reading_media_image
 from api.item import handle_item
 from api.delete import handle_delete
 from api.settings import handle_settings, handle_test
@@ -79,6 +80,10 @@ class YiReadHandler(SimpleHTTPRequestHandler):
         if not self.allowed_request():
             return
         route = unquote(urlparse(self.path).path)
+        if route.startswith('/api/reading-media-image/'):
+            match=re.fullmatch(r'/api/reading-media-image/([A-Za-z0-9_-]+)/([1-9][0-9]{0,5})/(p[1-9][0-9]*_media[1-9][0-9]*)',route)
+            if not match:return error(self,'invalid media',400)
+            return handle_reading_media_image(self,match[1],int(match[2]),match[3])
         for prefix, handle in (('/api/translation-layout/', handle_translation_layout), ('/api/translation-background/', handle_translation_background)):
             if route.startswith(prefix):
                 match = re.fullmatch(re.escape(prefix)+r'([A-Za-z0-9_-]+)/([1-9][0-9]{0,5})', route)
@@ -97,7 +102,7 @@ class YiReadHandler(SimpleHTTPRequestHandler):
                      "/api/translation/": handle_translation_result,
                      "/api/paper/": handle_paper, "/api/item/": handle_item,
                      "/api/source/": self.serve_source, "/api/pdf-layout/": handle_pdf_layout,
-                     "/api/notes/":handle_notes}
+                     "/api/notes/":handle_notes, "/api/reading-media/":handle_reading_media}
         for prefix, handle in resources.items():
             if route.startswith(prefix):
                 paper_id = route[len(prefix):]
