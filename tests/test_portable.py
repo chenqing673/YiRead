@@ -3,6 +3,7 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import socket
 import tempfile
 import time
 from urllib.request import Request, urlopen
@@ -10,10 +11,13 @@ import zipfile
 import fitz
 
 archive = Path(__file__).resolve().parents[1] / 'dist' / 'YiRead-Windows-x64.zip'
+with socket.socket() as reservation:
+    reservation.bind(('127.0.0.1', 0))
+    TEST_PORT = reservation.getsockname()[1]
 
 
 def fetch(path, data=None, headers=None):
-    with urlopen(Request('http://127.0.0.1:8765' + path, data=data, headers=headers or {}), timeout=10) as response:
+    with urlopen(Request(f'http://127.0.0.1:{TEST_PORT}' + path, data=data, headers=headers or {}), timeout=10) as response:
         return response.read()
 
 
@@ -31,6 +35,7 @@ def main():
             release.extractall(temp)
         app = Path(temp) / 'YiRead'
         env = os.environ.copy()
+        env['YIREAD_PORT'] = str(TEST_PORT)
         windows_dir = next((value for key, value in env.items() if key.lower() == 'systemroot'), r'C:\Windows')
         env['PATH'] = str(Path(windows_dir) / 'System32')
         with open(Path(temp) / 'output.log', 'wb') as output:
@@ -49,6 +54,10 @@ def main():
                     raise RuntimeError('Startup timeout')
                 assert b'YiRead' in fetch('/')
                 token = json.loads(fetch('/api/token'))['data']['token']
+                update = json.loads(fetch('/api/update/status', headers={'X-Token': token}))['data']
+                assert update['current_version'] == '1.0.3', update
+                assert (app / '_internal' / 'apply-update.ps1').exists()
+                assert b'js/update.js' in fetch('/')
                 pdf = fitz.open()
                 page = pdf.new_page()
                 page.insert_text((72, 72), 'Portable PDF import and rendering test.')

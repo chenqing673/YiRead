@@ -32,9 +32,11 @@ from core.config import get_data_path
 from core.translation_worker import recover_jobs, JOB_LOCK
 from storage.jobs import get_translation_job_by_paper
 from core.runtime import RESOURCE_DIR
+from api.update import handle_update
+from core import updater
 
 HOST = "127.0.0.1"
-PORT = 8765
+PORT = int(os.environ.get('YIREAD_PORT', '8765'))
 BASE_DIR = str(RESOURCE_DIR)
 FRONTEND_DIR = os.path.join(BASE_DIR, "frontend")
 
@@ -80,6 +82,8 @@ class YiReadHandler(SimpleHTTPRequestHandler):
         if not self.allowed_request():
             return
         route = unquote(urlparse(self.path).path)
+        if route == '/api/update/status':
+            return handle_update(self, 'status')
         if route.startswith('/api/reading-media-image/'):
             match=re.fullmatch(r'/api/reading-media-image/([A-Za-z0-9_-]+)/([1-9][0-9]{0,5})/(p[1-9][0-9]*_media[1-9][0-9]*)',route)
             if not match:return error(self,'invalid media',400)
@@ -130,6 +134,10 @@ class YiReadHandler(SimpleHTTPRequestHandler):
         if not self.allowed_request():
             return
         route = unquote(urlparse(self.path).path)
+        if updater.status()['status'] == 'installing':
+            return error(self, '程序正在更新，请稍后重新打开', 503)
+        if route in ('/api/update/check', '/api/update/install'):
+            return handle_update(self, route.rsplit('/', 1)[1])
         endpoints = {"/api/import": handle_import, "/api/translation": handle_create_translation,
                      "/api/trash/restore":handle_trash, "/api/notes":handle_notes, "/api/translation/cancel":handle_translation_cancel,
                      "/api/worker": handle_run_translation, "/api/settings": handle_settings,

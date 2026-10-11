@@ -5,7 +5,7 @@ a = Analysis(
     [str(root / 'backend' / 'portable.py')],
     pathex=[str(root / 'backend')],
     binaries=[],
-    datas=[(str(root / 'frontend'), 'frontend')],
+    datas=[(str(root / 'frontend'), 'frontend'), (str(root / 'packaging' / 'apply-update.ps1'), '.')],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},

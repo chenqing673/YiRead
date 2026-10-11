@@ -16,6 +16,9 @@ ACTIVE=set()
 
 def submit_translation(job_id):
     with JOB_LOCK:
+        from core.updater import status
+        if status()['status'] == 'installing':
+            return
         if job_id in ACTIVE:return
         ACTIVE.add(job_id)
     def execute():
