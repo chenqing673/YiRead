@@ -3,6 +3,8 @@ from api.trash import handle_trash
 from api.translation_control import handle_translation_cancel
 from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 import os
+import errno
+import socket
 import re
 import shutil
 import threading
@@ -170,16 +172,39 @@ class YiReadHandler(SimpleHTTPRequestHandler):
         return full_path
 
 
+class YiReadHTTPServer(ThreadingHTTPServer):
+    def server_bind(self):
+        if os.name == 'nt':
+            # Windows SO_REUSEADDR can silently share another listener's port.
+            self.allow_reuse_address = False
+            self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+        super().server_bind()
+
+
+def create_server(port=None):
+    """Do not send the browser to an unrelated process occupying our usual port."""
+    preferred = PORT if port is None else port
+    try:
+        return YiReadHTTPServer((HOST, preferred), YiReadHandler)
+    except OSError as exc:
+        if exc.errno not in (errno.EADDRINUSE, errno.EACCES) and getattr(exc, 'winerror', None) not in (10048, 10013):
+            raise
+        server = YiReadHTTPServer((HOST, 0), YiReadHandler)
+        print(f"Port {preferred} is occupied; using {server.server_port} instead.", flush=True)
+        return server
+
+
 def start_server(open_browser=False):
     init_data()
     recover_jobs()
     from storage.trash import recover_trash
     recover_trash()
-    server = ThreadingHTTPServer((HOST, PORT), YiReadHandler)
-    print(f"YiRead server running: http://{HOST}:{PORT}", flush=True)
+    server = create_server()
+    url = f"http://{HOST}:{server.server_port}/"
+    print(f"YiRead server running: {url}", flush=True)
     if open_browser:
         threading.Thread(
-            target=webbrowser.open, args=(f"http://{HOST}:{PORT}/",), daemon=True
+            target=webbrowser.open, args=(url,), daemon=True
         ).start()
     try:
         server.serve_forever()

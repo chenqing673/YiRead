@@ -2,6 +2,8 @@
 
 ## Windows 启动
 
+默认端口为 8765。如果该端口被其他程序占用或禁止绑定，程序自动选择可用端口并在浏览器打开实际地址；请以服务窗口显示的地址为准，不要继续刷新被占用的旧地址。
+
 免安装发行版：将 `YiRead-Windows-x64.zip` 完整解压，双击 `YiRead.exe`。无需安装 Python、Node.js 或 PDF 依赖。程序自动打开系统浏览器，关闭服务窗口即停止。请解压到可写目录，保留 `_internal` 文件夹。用户数据存放在可执行文件旁的 `data` 目录，备份及升级时先关闭程序再迁移该目录。
 
 重新打包：在 Windows x64 构建环境安装 `requirements-build.txt`，运行 `powershell -ExecutionPolicy Bypass -File build-portable.ps1`。输出为 `dist/YiRead` 和 `dist/YiRead-Windows-x64.zip`，不打包开发目录中的文献和密钥。
